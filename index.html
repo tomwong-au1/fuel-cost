@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#ffffff" />
+  <title>Fuel Cost Calculator</title>
+
+  <!-- PWA manifest + iOS home-screen support -->
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Fuel Cost" />
+
+  <style>
+    :root {
+      --bg: #ffffff;
+      --card: #f8fafc;
+      --input-bg: #ffffff;
+      --accent: #10b981;
+      --accent-dark: #0b6e4f;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #e2e8f0;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+    }
+
+    .app {
+      width: 100%;
+      max-width: 480px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+    }
+
+    header p {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-top: 4px;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
+      border: 1px solid var(--border);
+    }
+
+    .field {
+      margin-bottom: 18px;
+    }
+
+    .field:last-child { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .input-wrap {
+      display: flex;
+      align-items: center;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+    }
+
+    .input-wrap input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: var(--text);
+      font-size: 1.15rem;
+      padding: 12px 14px;
+      width: 100%;
+    }
+
+    .input-wrap .unit {
+      color: var(--muted);
+      font-size: 0.85rem;
+      padding: 0 14px;
+      white-space: nowrap;
+    }
+
+    .results {
+      background: #dcfce7;
+      border: 1px solid #bbf7d0;
+    }
+
+    .result-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      padding: 10px 0;
+      border-bottom: 1px solid #bbf7d0;
+    }
+
+    .result-row:last-child { border-bottom: none; }
+
+    .result-row .r-label {
+      font-size: 0.9rem;
+      opacity: 0.95;
+    }
+
+    .result-row .r-value {
+      font-size: 1.4rem;
+      font-weight: 700;
+    }
+
+    .result-row.big .r-value { font-size: 1.9rem; }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.75rem;
+      text-align: center;
+      margin-top: 8px;
+      line-height: 1.5;
+    }
+
+    .calc-btn {
+      width: 100%;
+      background: var(--accent-dark);
+      color: #ffffff;
+      border-color: var(--accent-dark);
+      font-size: 1.05rem;
+      padding: 15px;
+      margin-bottom: 16px;
+    }
+
+    .calc-btn:active { filter: brightness(0.92); }
+
+    .btn-row {
+      display: flex;
+      gap: 10px;
+      margin-top: 4px;
+    }
+
+    .btn {
+      flex: 1;
+      border-radius: 10px;
+      padding: 13px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid var(--border);
+    }
+
+    .save-btn {
+      flex: 2;
+      background: var(--accent);
+      color: #06281d;
+      border-color: var(--accent);
+    }
+
+    .save-btn:active { filter: brightness(0.92); }
+
+    .reset-btn {
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .reset-btn:active { background: var(--card); }
+
+    /* History */
+    .history-card { margin-top: 16px; }
+
+    .history-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .history-title { font-weight: 700; font-size: 1rem; }
+
+    .clear-all {
+      background: transparent;
+      border: none;
+      color: #f87171;
+      font-size: 0.8rem;
+      cursor: pointer;
+    }
+
+    .history-list { list-style: none; }
+
+    .history-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .history-item:last-child { border-bottom: none; }
+
+    .hi-line {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.78rem;
+      color: var(--text);
+      word-break: break-word;
+      line-height: 1.4;
+    }
+
+    .hi-del {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 4px 8px;
+      flex-shrink: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>&#9981; Fuel Cost Calculator</h1>
+      <p>Work out the cost of your trip</p>
+    </header>
+
+    <!-- Inputs -->
+    <div class="card">
+      <div class="field">
+        <label for="price">Fuel price at the station</label>
+        <div class="input-wrap">
+          <input id="price" type="number" inputmode="decimal" placeholder="190" />
+          <span class="unit">cents / L</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="consumption">Vehicle fuel consumption</label>
+        <div class="input-wrap">
+          <input id="consumption" type="number" inputmode="decimal" placeholder="5.1" />
+          <span class="unit">L / 100 km</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="distance">Trip distance</label>
+        <div class="input-wrap">
+          <input id="distance" type="number" inputmode="decimal" placeholder="10" />
+          <span class="unit">km</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="location">Location</label>
+        <div class="input-wrap">
+          <input id="location" type="text" placeholder="e.g. CBD" />
+        </div>
+      </div>
+    </div>
+
+    <button class="btn calc-btn" id="calculate">Calculate</button>
+
+    <!-- Results -->
+    <div class="card results" id="resultsCard" style="display:none;">
+      <div class="result-row">
+        <span class="r-label">Cost per km</span>
+        <span class="r-value" id="perKm">0.00 &cent;</span>
+      </div>
+      <div class="result-row">
+        <span class="r-label">Fuel used</span>
+        <span class="r-value" id="litres">0.00 L</span>
+      </div>
+      <div class="result-row big">
+        <span class="r-label">Total trip cost</span>
+        <span class="r-value" id="total">$0.00</span>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn save-btn" id="save">&#128190; Save trip</button>
+      <button class="btn reset-btn" id="reset">Clear</button>
+    </div>
+
+    <!-- Saved history -->
+    <div class="card history-card" id="historyCard" style="display:none;">
+      <div class="history-head">
+        <span class="history-title">Saved trips</span>
+        <button class="clear-all" id="clearAll">Clear all</button>
+      </div>
+      <ul class="history-list" id="historyList"></ul>
+    </div>
+
+    <p class="hint">
+      Price is entered in cents per litre (Australian style),<br />
+      so 190 means $1.90 / L. Everything runs on your phone &mdash; no internet needed.
+    </p>
+  </div>
+
+  <script>
+    // --- DOM references ---
+    const priceEl = document.getElementById("price");
+    const consumptionEl = document.getElementById("consumption");
+    const distanceEl = document.getElementById("distance");
+    const locationEl = document.getElementById("location");
+
+    const perKmEl = document.getElementById("perKm");
+    const litresEl = document.getElementById("litres");
+    const totalEl = document.getElementById("total");
+    const resetBtn = document.getElementById("reset");
+
+    // --- Formatting helpers ---
+    function money(value) {
+      return "$" + value.toFixed(2);
+    }
+
+    // --- Core calculation ---
+    // price:       cents per litre (e.g. 190 => $1.90 / L)
+    // consumption: litres per 100 km (e.g. 5.1)
+    // distance:    km (e.g. 10)
+    function calculate() {
+      const priceCents = parseFloat(priceEl.value);
+      const consumption = parseFloat(consumptionEl.value);
+      const distance = parseFloat(distanceEl.value);
+
+      // Convert station price from cents to dollars per litre.
+      const pricePerLitre = (priceCents || 0) / 100;
+
+      // Litres burned per km, then dollars per km.
+      const litresPerKm = (consumption || 0) / 100;
+      const costPerKm = litresPerKm * pricePerLitre;
+
+      // Trip totals.
+      const litresUsed = litresPerKm * (distance || 0);
+      const tripCost = costPerKm * (distance || 0);
+
+      // Show cost per km in cents (with 2 decimals) so small values stay readable.
+      perKmEl.textContent = (costPerKm * 100).toFixed(2) + " ¢";
+      litresEl.textContent = litresUsed.toFixed(2) + " L";
+      totalEl.textContent = money(tripCost);
+    }
+
+    // --- Remember the last fuel price across sessions ---
+    const LAST_PRICE_KEY = "fuelLastPrice";
+
+    // Prefill the price with whatever was entered last time.
+    const savedPrice = localStorage.getItem(LAST_PRICE_KEY);
+    if (savedPrice !== null && savedPrice !== "") {
+      priceEl.value = savedPrice;
+    }
+
+    // --- Events ---
+    const resultsCard = document.getElementById("resultsCard");
+    const calcBtn = document.getElementById("calculate");
+
+    // Results only appear after the user presses Calculate.
+    calcBtn.addEventListener("click", function () {
+      calculate();
+      resultsCard.style.display = "block";
+    });
+
+    // Persist the price whenever it changes.
+    priceEl.addEventListener("input", function () {
+      localStorage.setItem(LAST_PRICE_KEY, priceEl.value);
+    });
+
+    resetBtn.addEventListener("click", function () {
+      priceEl.value = "";
+      consumptionEl.value = "";
+      distanceEl.value = "";
+      locationEl.value = "";
+      resultsCard.style.display = "none";
+      priceEl.focus();
+    });
+
+    // --- Saved history (stored on-device via localStorage) ---
+    const STORAGE_KEY = "fuelCostHistory";
+    const saveBtn = document.getElementById("save");
+    const clearAllBtn = document.getElementById("clearAll");
+    const historyCard = document.getElementById("historyCard");
+    const historyList = document.getElementById("historyList");
+
+    function loadHistory() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    function persistHistory(items) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    }
+
+    function pad(n) {
+      return String(n).padStart(2, "0");
+    }
+
+    // "dd-mm-yy, hh:mm:ss" in 24-hour time.
+    function formatStamp(ts) {
+      const d = new Date(ts);
+      const date = pad(d.getDate()) + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getFullYear() % 100);
+      const time = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+      return date + ", " + time;
+    }
+
+    // Drop trailing zeros: 3.40 -> "3.4", 5.00 -> "5".
+    function trim(n) {
+      return parseFloat(n.toFixed(2)).toString();
+    }
+
+    // Build one saved line, e.g.
+    // "02-08-26, 23:10:05, 190 /L, 0.51 L, 10km, $0.97, CBD"
+    function formatLine(item) {
+      const litresUsed = (item.consumption / 100) * item.distance;
+      const parts = [
+        formatStamp(item.ts),
+        trim(item.price) + " /L",
+        trim(litresUsed) + " L",
+        trim(item.distance) + "km",
+        money(item.tripCost)
+      ];
+      if (item.location) parts.push(item.location);
+      return parts.join(", ");
+    }
+
+    function renderHistory() {
+      const items = loadHistory();
+      historyCard.style.display = items.length ? "block" : "none";
+      historyList.innerHTML = "";
+
+      items.forEach(function (item) {
+        const li = document.createElement("li");
+        li.className = "history-item";
+
+        const line = document.createElement("span");
+        line.className = "hi-line";
+        line.textContent = formatLine(item);
+
+        const del = document.createElement("button");
+        del.className = "hi-del";
+        del.innerHTML = "&times;";
+        del.setAttribute("aria-label", "Delete");
+        del.addEventListener("click", function () {
+          const remaining = loadHistory().filter(function (x) { return x.ts !== item.ts; });
+          persistHistory(remaining);
+          renderHistory();
+        });
+
+        li.appendChild(line);
+        li.appendChild(del);
+        historyList.appendChild(li);
+      });
+    }
+
+    saveBtn.addEventListener("click", function () {
+      const price = parseFloat(priceEl.value);
+      const consumption = parseFloat(consumptionEl.value);
+      const distance = parseFloat(distanceEl.value);
+
+      // Only save when all three inputs are present.
+      if (isNaN(price) || isNaN(consumption) || isNaN(distance)) {
+        saveBtn.textContent = "Enter all 3 values first";
+        setTimeout(function () { saveBtn.innerHTML = "&#128190; Save trip"; }, 1400);
+        return;
+      }
+
+      const tripCost = (consumption / 100) * (price / 100) * distance;
+      const items = loadHistory();
+      items.unshift({
+        ts: Date.now(),
+        price: price,
+        consumption: consumption,
+        distance: distance,
+        tripCost: tripCost,
+        location: locationEl.value.trim()
+      });
+      persistHistory(items);
+      renderHistory();
+
+      saveBtn.textContent = "Saved ✓";
+      setTimeout(function () { saveBtn.innerHTML = "&#128190; Save trip"; }, 1200);
+    });
+
+    clearAllBtn.addEventListener("click", function () {
+      if (confirm("Delete all saved trips?")) {
+        localStorage.removeItem(STORAGE_KEY);
+        renderHistory();
+      }
+    });
+
+    // First render.
+    calculate();
+    renderHistory();
+
+    // --- Register service worker for offline use ---
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function () {
+        navigator.serviceWorker.register("service-worker.js").catch(function (err) {
+          console.warn("Service worker registration failed:", err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>

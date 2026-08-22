@@ -225,6 +225,32 @@
       line-height: 1.4;
     }
 
+    /* Backup */
+    .backup-card { margin-top: 16px; }
+
+    .backup-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 10px;
+    }
+
+    .backup-count {
+      color: var(--muted);
+      font-size: 0.8rem;
+    }
+
+    .backup-card .btn-row { margin-top: 0; }
+
+    .backup-msg {
+      color: var(--muted);
+      font-size: 0.78rem;
+      text-align: center;
+      margin-top: 10px;
+      min-height: 1.15em;
+      line-height: 1.4;
+    }
+
     .hi-del {
       background: transparent;
       border: none;
@@ -307,6 +333,20 @@
         <button class="clear-all" id="clearAll">Clear all</button>
       </div>
       <ul class="history-list" id="historyList"></ul>
+    </div>
+
+    <!-- Backup: always visible, so a fresh phone can import straight away -->
+    <div class="card backup-card">
+      <div class="backup-head">
+        <span class="history-title">Backup</span>
+        <span class="backup-count" id="backupCount"></span>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="export">&#11015; Export</button>
+        <button class="btn" id="import">&#11014; Import</button>
+      </div>
+      <input type="file" id="importFile" accept="application/json,.json" hidden />
+      <p class="backup-msg" id="backupMsg"></p>
     </div>
 
     <p class="hint">
@@ -472,6 +512,8 @@
         li.appendChild(del);
         historyList.appendChild(li);
       });
+
+      refreshCount();
     }
 
     saveBtn.addEventListener("click", function () {
@@ -508,6 +550,182 @@
         localStorage.removeItem(STORAGE_KEY);
         renderHistory();
       }
+    });
+
+    // --- Backup: export / import the saved trips as a JSON file ---
+    const EXPORT_VERSION = 1;
+    const exportBtn = document.getElementById("export");
+    const importBtn = document.getElementById("import");
+    const importFile = document.getElementById("importFile");
+    const backupMsg = document.getElementById("backupMsg");
+    const backupCount = document.getElementById("backupCount");
+
+    function say(text) {
+      backupMsg.textContent = text;
+    }
+
+    function refreshCount() {
+      const n = loadHistory().length;
+      backupCount.textContent = n === 1 ? "1 trip saved" : n + " trips saved";
+    }
+
+    // Date in the file name so successive backups sit side by side.
+    function backupName() {
+      const d = new Date();
+      const stamp = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+      return "fuel-cost-backup-" + stamp + ".json";
+    }
+
+    function buildBackup() {
+      return JSON.stringify({
+        app: "fuel-cost",
+        version: EXPORT_VERSION,
+        exportedAt: new Date().toISOString(),
+        lastPrice: localStorage.getItem(LAST_PRICE_KEY) || "",
+        trips: loadHistory()
+      }, null, 2);
+    }
+
+    function downloadBackup(name, json) {
+      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    }
+
+    exportBtn.addEventListener("click", function () {
+      const count = loadHistory().length;
+      if (!count) {
+        say("Nothing to export yet — save a trip first.");
+        return;
+      }
+
+      const name = backupName();
+      const json = buildBackup();
+
+      // On iOS the share sheet is the reliable route into Files or Drive;
+      // everywhere else a plain download is simpler.
+      let file = null;
+      try {
+        file = new File([json], name, { type: "application/json" });
+      } catch (e) {
+        file = null;
+      }
+
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file], title: name }).then(function () {
+          say("Exported " + count + " trips.");
+        }).catch(function (err) {
+          if (err && err.name === "AbortError") {
+            say("Export cancelled.");
+          } else {
+            downloadBackup(name, json);
+            say("Exported " + count + " trips to " + name);
+          }
+        });
+        return;
+      }
+
+      downloadBackup(name, json);
+      say("Exported " + count + " trips to " + name);
+    });
+
+    importBtn.addEventListener("click", function () {
+      importFile.click();
+    });
+
+    // Accepts a full backup object or a bare array, and drops anything
+    // that is not a usable trip rather than trusting the file.
+    function readTrips(parsed) {
+      const raw = Array.isArray(parsed) ? parsed : (parsed && parsed.trips);
+      if (!Array.isArray(raw)) return null;
+
+      return raw
+        .filter(function (t) {
+          return t
+            && isFinite(t.ts)
+            && isFinite(t.price)
+            && isFinite(t.consumption)
+            && isFinite(t.distance);
+        })
+        .map(function (t) {
+          const price = Number(t.price);
+          const consumption = Number(t.consumption);
+          const distance = Number(t.distance);
+          return {
+            ts: Number(t.ts),
+            price: price,
+            consumption: consumption,
+            distance: distance,
+            tripCost: isFinite(t.tripCost)
+              ? Number(t.tripCost)
+              : (consumption / 100) * (price / 100) * distance,
+            location: typeof t.location === "string" ? t.location : ""
+          };
+        });
+    }
+
+    importFile.addEventListener("change", function () {
+      const file = importFile.files && importFile.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+
+      reader.onerror = function () {
+        say("Could not read that file.");
+        importFile.value = "";
+      };
+
+      reader.onload = function () {
+        let parsed;
+        try {
+          parsed = JSON.parse(reader.result);
+        } catch (e) {
+          say("That file is not valid JSON.");
+          importFile.value = "";
+          return;
+        }
+
+        const incoming = readTrips(parsed);
+        if (!incoming) {
+          say("No trips found in that file.");
+          importFile.value = "";
+          return;
+        }
+
+        // Merge on the timestamp, so re-importing the same backup is harmless.
+        const existing = loadHistory();
+        const seen = {};
+        existing.forEach(function (t) { seen[t.ts] = true; });
+
+        const added = incoming.filter(function (t) { return !seen[t.ts]; });
+        const merged = existing.concat(added).sort(function (a, b) { return b.ts - a.ts; });
+
+        persistHistory(merged);
+        renderHistory();
+
+        // Carry the backed-up price over only into an empty box.
+        if (parsed && parsed.lastPrice && priceEl.value === "") {
+          priceEl.value = parsed.lastPrice;
+          localStorage.setItem(LAST_PRICE_KEY, parsed.lastPrice);
+        }
+
+        if (added.length) {
+          const dupes = incoming.length - added.length;
+          say("Imported " + added.length + " new trips"
+            + (dupes ? " (" + dupes + " already here)." : "."));
+        } else {
+          say("Nothing new — all " + incoming.length + " trips were already saved.");
+        }
+
+        importFile.value = "";
+      };
+
+      reader.readAsText(file);
     });
 
     // First render.

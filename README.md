@@ -34,6 +34,22 @@ trip cost       = cost per km * distance
 Example (`190`, `5.1`, `10`): cost per km = **9.69 ¢**, fuel used = **0.51 L**,
 trip cost = **$0.97**.
 
+## Backup (export / import)
+
+All saved trips live on the phone in `localStorage`, which is not permanent — clearing
+browser data or moving to a new phone loses them. The **Backup** card at the bottom of the
+app guards against that:
+
+- **Export** writes every saved trip to `fuel-cost-backup-YYYY-MM-DD.json`. On iPhone this
+  opens the share sheet (save to Files, Drive, or mail it to yourself); elsewhere it just
+  downloads.
+- **Import** reads one of those files back. Trips are merged on their timestamp, so
+  importing the same backup twice adds nothing and never creates duplicates — importing
+  from two different phones gives you the union of both.
+
+Nothing leaves the device unless you choose to share the file, and the app stays fully
+offline.
+
 ## Files
 
 ```

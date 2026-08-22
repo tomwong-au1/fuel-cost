@@ -254,18 +254,18 @@
       </div>
 
       <div class="field">
-        <label for="consumption">Vehicle fuel consumption</label>
-        <div class="input-wrap">
-          <input id="consumption" type="number" inputmode="decimal" placeholder="5.1" />
-          <span class="unit">L / 100 km</span>
-        </div>
-      </div>
-
-      <div class="field">
         <label for="distance">Trip distance</label>
         <div class="input-wrap">
           <input id="distance" type="number" inputmode="decimal" placeholder="10" />
           <span class="unit">km</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="consumption">Vehicle fuel consumption</label>
+        <div class="input-wrap">
+          <input id="consumption" type="number" inputmode="decimal" placeholder="5.1" />
+          <span class="unit">L / 100 km</span>
         </div>
       </div>
 
@@ -377,18 +377,21 @@
       resultsCard.style.display = "block";
     });
 
-    // Persist the price whenever it changes.
+    // Persist the price whenever it changes, but never store a blank
+    // (an empty box is mid-typing, not a price worth remembering).
     priceEl.addEventListener("input", function () {
-      localStorage.setItem(LAST_PRICE_KEY, priceEl.value);
+      if (priceEl.value !== "") {
+        localStorage.setItem(LAST_PRICE_KEY, priceEl.value);
+      }
     });
 
     resetBtn.addEventListener("click", function () {
-      priceEl.value = "";
-      consumptionEl.value = "";
+      // Keep the fuel price - it is the one value that carries over between trips.
       distanceEl.value = "";
+      consumptionEl.value = "";
       locationEl.value = "";
       resultsCard.style.display = "none";
-      priceEl.focus();
+      distanceEl.focus();
     });
 
     // --- Saved history (stored on-device via localStorage) ---

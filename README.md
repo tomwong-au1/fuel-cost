@@ -16,8 +16,11 @@ internet connection.
 | Field | Example | Unit |
 |-------|---------|------|
 | Fuel price at the station | `190` | cents / litre (Australian style, so 190 = $1.90/L) |
-| Vehicle fuel consumption | `5.1` | litres / 100 km |
 | Trip distance | `10` | km |
+| Vehicle fuel consumption | `5.1` | litres / 100 km |
+
+The fuel price is remembered between sessions, so it is already filled in next time
+you open the app.
 
 ### How it is calculated
 

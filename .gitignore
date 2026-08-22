@@ -1,0 +1,8 @@
+# Windows / OneDrive noise
+desktop.ini
+Thumbs.db
+ehthumbs.db
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store

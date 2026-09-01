@@ -18,6 +18,7 @@ internet connection.
 | Fuel price at the station | `190` | cents / litre (Australian style, so 190 = $1.90/L) |
 | Trip distance | `10` | km |
 | Vehicle fuel consumption | `5.1` | litres / 100 km |
+| From / To | `Home` / `CBD` | free text, optional |
 
 The fuel price is remembered between sessions, so it is already filled in next time
 you open the app.
@@ -33,6 +34,16 @@ trip cost       = cost per km * distance
 
 Example (`190`, `5.1`, `10`): cost per km = **9.69 ¢**, fuel used = **0.51 L**,
 trip cost = **$0.97**.
+
+### Remembered places
+
+Every **From** and **To** you save is kept in a list on the device. Tap the small
+chevron in either box (or just start typing) to drop down the places used before,
+newest first, filtered by what has been typed. Matching ignores case, so `cbd` and
+`CBD` stay one entry. The list is capped at 30 and rides along in the backup file.
+
+Trips saved before this existed had a single `Location` instead; they still show
+correctly in the history and their locations were folded into the dropdown.
 
 ## Backup (export / import)
 

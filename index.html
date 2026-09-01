@@ -9,6 +9,7 @@
   <!-- PWA manifest + iOS home-screen support -->
   <link rel="manifest" href="manifest.json" />
   <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Fuel Cost" />
@@ -68,6 +69,7 @@
 
     .field {
       margin-bottom: 18px;
+      position: relative;
     }
 
     .field:last-child { margin-bottom: 0; }
@@ -104,6 +106,51 @@
       font-size: 0.85rem;
       padding: 0 14px;
       white-space: nowrap;
+    }
+
+    /* Remembered places */
+    .pick {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding: 0 14px;
+      align-self: stretch;
+      cursor: pointer;
+    }
+
+    .pick:active { color: var(--text); }
+
+    .suggest {
+      list-style: none;
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 100%;
+      z-index: 20;
+      margin-top: 4px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.14);
+      max-height: 190px;
+      overflow-y: auto;
+    }
+
+    .suggest li {
+      padding: 11px 14px;
+      font-size: 0.95rem;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+    }
+
+    .suggest li:last-child { border-bottom: none; }
+    .suggest li:active { background: var(--card); }
+
+    .suggest .empty {
+      color: var(--muted);
+      font-size: 0.85rem;
+      cursor: default;
     }
 
     .results {
@@ -296,10 +343,21 @@
       </div>
 
       <div class="field">
-        <label for="location">Location</label>
+        <label for="from">From</label>
         <div class="input-wrap">
-          <input id="location" type="text" placeholder="e.g. CBD" />
+          <input id="from" type="text" placeholder="e.g. Home" autocomplete="off" />
+          <button class="pick" id="fromPick" aria-label="Show saved places">&#9662;</button>
         </div>
+        <ul class="suggest" id="fromList" hidden></ul>
+      </div>
+
+      <div class="field">
+        <label for="to">To</label>
+        <div class="input-wrap">
+          <input id="to" type="text" placeholder="e.g. CBD" autocomplete="off" />
+          <button class="pick" id="toPick" aria-label="Show saved places">&#9662;</button>
+        </div>
+        <ul class="suggest" id="toList" hidden></ul>
       </div>
     </div>
 
@@ -360,7 +418,8 @@
     const priceEl = document.getElementById("price");
     const consumptionEl = document.getElementById("consumption");
     const distanceEl = document.getElementById("distance");
-    const locationEl = document.getElementById("location");
+    const fromEl = document.getElementById("from");
+    const toEl = document.getElementById("to");
 
     const perKmEl = document.getElementById("perKm");
     const litresEl = document.getElementById("litres");
@@ -429,7 +488,8 @@
       // Keep the fuel price - it is the one value that carries over between trips.
       distanceEl.value = "";
       consumptionEl.value = "";
-      locationEl.value = "";
+      fromEl.value = "";
+      toEl.value = "";
       resultsCard.style.display = "none";
       distanceEl.focus();
     });
@@ -481,7 +541,11 @@
         trim(item.distance) + "km",
         money(item.tripCost)
       ];
-      if (item.location) parts.push(item.location);
+      // Newer saves carry from/to; trips saved before that only had a location.
+      const route = [item.from, item.to].filter(Boolean).join(" → ");
+      if (route) parts.push(route);
+      else if (item.location) parts.push(item.location);
+
       return parts.join(", ");
     }
 
@@ -520,6 +584,8 @@
       const price = parseFloat(priceEl.value);
       const consumption = parseFloat(consumptionEl.value);
       const distance = parseFloat(distanceEl.value);
+      const from = fromEl.value.trim();
+      const to = toEl.value.trim();
 
       // Only save when all three inputs are present.
       if (isNaN(price) || isNaN(consumption) || isNaN(distance)) {
@@ -536,9 +602,12 @@
         consumption: consumption,
         distance: distance,
         tripCost: tripCost,
-        location: locationEl.value.trim()
+        from: from,
+        to: to
       });
       persistHistory(items);
+      rememberPlace(from);
+      rememberPlace(to);
       renderHistory();
 
       saveBtn.textContent = "Saved ✓";
@@ -551,6 +620,109 @@
         renderHistory();
       }
     });
+
+    // --- Remembered places, offered as a dropdown under From and To ---
+    const PLACES_KEY = "fuelPlaces";
+    const PLACES_MAX = 30;
+
+    function loadPlaces() {
+      try {
+        const raw = JSON.parse(localStorage.getItem(PLACES_KEY));
+        if (!Array.isArray(raw)) return [];
+        return raw.filter(function (p) { return typeof p === "string" && p.trim(); });
+      } catch (e) {
+        return [];
+      }
+    }
+
+    // Most recent first, matched case-insensitively so "cbd" does not sit
+    // beside "CBD", but keeping whatever spelling was typed last.
+    function rememberPlace(name) {
+      const clean = (name || "").trim();
+      if (!clean) return;
+
+      const lower = clean.toLowerCase();
+      const rest = loadPlaces().filter(function (p) {
+        return p.toLowerCase() !== lower;
+      });
+      localStorage.setItem(
+        PLACES_KEY,
+        JSON.stringify([clean].concat(rest).slice(0, PLACES_MAX))
+      );
+    }
+
+    // First run after this feature landed: pull places out of trips already
+    // saved, including the single "location" older trips used to carry.
+    function seedPlacesFromHistory() {
+      if (localStorage.getItem(PLACES_KEY) !== null) return;
+
+      const found = [];
+      loadHistory().forEach(function (t) {
+        [t.from, t.to, t.location].forEach(function (p) {
+          if (typeof p === "string" && p.trim()) found.push(p.trim());
+        });
+      });
+
+      localStorage.setItem(PLACES_KEY, "[]");
+      // Oldest first, so the newest end up at the top of the list.
+      found.reverse().forEach(rememberPlace);
+    }
+
+    // Text input plus a chevron that drops down the remembered places,
+    // narrowed to whatever has been typed so far.
+    function wirePlaceField(input, button, list) {
+      function close() {
+        list.hidden = true;
+      }
+
+      function open() {
+        const all = loadPlaces();
+        const typed = input.value.trim().toLowerCase();
+        const matches = all.filter(function (p) {
+          return !typed || p.toLowerCase().indexOf(typed) !== -1;
+        });
+
+        list.innerHTML = "";
+
+        if (!matches.length) {
+          const li = document.createElement("li");
+          li.className = "empty";
+          li.textContent = all.length ? "No match" : "No saved places yet";
+          list.appendChild(li);
+        } else {
+          matches.forEach(function (place) {
+            const li = document.createElement("li");
+            li.textContent = place;
+            // pointerdown lands before the input blurs, so the tap is not lost.
+            li.addEventListener("pointerdown", function (e) {
+              e.preventDefault();
+              input.value = place;
+              close();
+            });
+            list.appendChild(li);
+          });
+        }
+
+        list.hidden = false;
+      }
+
+      button.addEventListener("click", function (e) {
+        e.preventDefault();
+        if (list.hidden) {
+          open();
+          input.focus();
+        } else {
+          close();
+        }
+      });
+
+      input.addEventListener("focus", open);
+      input.addEventListener("input", open);
+      input.addEventListener("blur", function () {
+        // Give a tap on a suggestion time to register first.
+        setTimeout(close, 200);
+      });
+    }
 
     // --- Backup: export / import the saved trips as a JSON file ---
     const EXPORT_VERSION = 1;
@@ -582,6 +754,7 @@
         version: EXPORT_VERSION,
         exportedAt: new Date().toISOString(),
         lastPrice: localStorage.getItem(LAST_PRICE_KEY) || "",
+        places: loadPlaces(),
         trips: loadHistory()
       }, null, 2);
     }
@@ -664,6 +837,8 @@
             tripCost: isFinite(t.tripCost)
               ? Number(t.tripCost)
               : (consumption / 100) * (price / 100) * distance,
+            from: typeof t.from === "string" ? t.from : "",
+            to: typeof t.to === "string" ? t.to : "",
             location: typeof t.location === "string" ? t.location : ""
           };
         });
@@ -708,6 +883,17 @@
         persistHistory(merged);
         renderHistory();
 
+        // Restore the dropdown list: places named in the file, plus any
+        // carried on the trips themselves.
+        if (parsed && Array.isArray(parsed.places)) {
+          parsed.places.slice().reverse().forEach(rememberPlace);
+        }
+        added.slice().reverse().forEach(function (t) {
+          rememberPlace(t.from);
+          rememberPlace(t.to);
+          rememberPlace(t.location);
+        });
+
         // Carry the backed-up price over only into an empty box.
         if (parsed && parsed.lastPrice && priceEl.value === "") {
           priceEl.value = parsed.lastPrice;
@@ -729,6 +915,9 @@
     });
 
     // First render.
+    seedPlacesFromHistory();
+    wirePlaceField(fromEl, document.getElementById("fromPick"), document.getElementById("fromList"));
+    wirePlaceField(toEl, document.getElementById("toPick"), document.getElementById("toList"));
     calculate();
     renderHistory();
 

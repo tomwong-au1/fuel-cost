@@ -52,8 +52,9 @@ browser data or moving to a new phone loses them. The **Backup** card at the bot
 app guards against that:
 
 - **Export** writes every saved trip to `fuel-cost-backup-YYYY-MM-DD.json`. On iPhone this
-  opens the share sheet (save to Files, Drive, or mail it to yourself); elsewhere it just
-  downloads.
+  opens the share sheet, so the file can go to Files, Drive, or straight into a mail as an
+  attachment; elsewhere it just downloads. Picking a mail app gets a subject and body
+  already filled in, leaving only the recipient to type.
 - **Import** reads one of those files back. Trips are merged on their timestamp, so
   importing the same backup twice adds nothing and never creates duplicates — importing
   from two different phones gives you the union of both.

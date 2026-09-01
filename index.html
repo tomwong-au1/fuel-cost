@@ -741,6 +741,13 @@
       backupCount.textContent = n === 1 ? "1 trip saved" : n + " trips saved";
     }
 
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+    function humanDate(d) {
+      return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear();
+    }
+
     // Date in the file name so successive backups sit side by side.
     function backupName() {
       const d = new Date();
@@ -779,8 +786,9 @@
 
       const name = backupName();
       const json = buildBackup();
+      const today = humanDate(new Date());
 
-      // On iOS the share sheet is the reliable route into Files or Drive;
+      // On iOS the share sheet is the reliable route into Mail, Files or Drive;
       // everywhere else a plain download is simpler.
       let file = null;
       try {
@@ -789,8 +797,25 @@
         file = null;
       }
 
-      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
-        navigator.share({ files: [file], title: name }).then(function () {
+      // Mail targets read title as the subject and text as the body, so fill
+      // both in. Not every target will take them beside a file, so fall back
+      // to sharing the file alone rather than losing the share sheet.
+      let share = null;
+      if (file && navigator.canShare) {
+        const withText = {
+          files: [file],
+          title: "Fuel cost backup " + today,
+          text: count + " trips, exported " + today
+            + ". Open the Fuel Cost app and tap Import to restore this file."
+        };
+        const fileOnly = { files: [file] };
+
+        if (navigator.canShare(withText)) share = withText;
+        else if (navigator.canShare(fileOnly)) share = fileOnly;
+      }
+
+      if (share) {
+        navigator.share(share).then(function () {
           say("Exported " + count + " trips.");
         }).catch(function (err) {
           if (err && err.name === "AbortError") {

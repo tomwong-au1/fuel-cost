@@ -403,7 +403,7 @@
         <button class="btn" id="export">&#11015; Export</button>
         <button class="btn" id="import">&#11014; Import</button>
       </div>
-      <input type="file" id="importFile" accept="application/json,.json" hidden />
+      <input type="file" id="importFile" accept=".csv,text/csv,.json,application/json" hidden />
       <p class="backup-msg" id="backupMsg"></p>
     </div>
 
@@ -724,13 +724,19 @@
       });
     }
 
-    // --- Backup: export / import the saved trips as a JSON file ---
-    const EXPORT_VERSION = 1;
+    // --- Backup: export / import the saved trips as a CSV file ---
+    const QUOTE = String.fromCharCode(34);
+    const BOM = String.fromCharCode(65279);
+    const BOM_RE = new RegExp("^" + BOM);
+
     const exportBtn = document.getElementById("export");
     const importBtn = document.getElementById("import");
     const importFile = document.getElementById("importFile");
     const backupMsg = document.getElementById("backupMsg");
     const backupCount = document.getElementById("backupCount");
+
+    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
     function say(text) {
       backupMsg.textContent = text;
@@ -741,114 +747,189 @@
       backupCount.textContent = n === 1 ? "1 trip saved" : n + " trips saved";
     }
 
-    const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
     function humanDate(d) {
       return d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear();
     }
 
-    // Date in the file name so successive backups sit side by side.
-    function backupName() {
-      const d = new Date();
-      const stamp = d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
-      return "fuel-cost-backup-" + stamp + ".json";
+    function isoDate(d) {
+      return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
     }
 
-    function buildBackup() {
-      return JSON.stringify({
-        app: "fuel-cost",
-        version: EXPORT_VERSION,
-        exportedAt: new Date().toISOString(),
-        lastPrice: localStorage.getItem(LAST_PRICE_KEY) || "",
-        places: loadPlaces(),
-        trips: loadHistory()
-      }, null, 2);
+    function isoTime(d) {
+      return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
     }
 
-    function downloadBackup(name, json) {
-      const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = name;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    // History is newest first, so the span runs from the last row to the first.
+    function span(items) {
+      return {
+        oldest: new Date(items[items.length - 1].ts),
+        newest: new Date(items[0].ts)
+      };
     }
 
-    exportBtn.addEventListener("click", function () {
-      const count = loadHistory().length;
-      if (!count) {
-        say("Nothing to export yet — save a trip first.");
-        return;
+    // "1 Jan 2026 to 30 Jun 2026", or a single date when that is all there is.
+    function spanLabel(items) {
+      const range = span(items);
+      const a = humanDate(range.oldest);
+      const b = humanDate(range.newest);
+      return a === b ? a : a + " to " + b;
+    }
+
+    function backupName(items) {
+      const range = span(items);
+      const a = isoDate(range.oldest);
+      const b = isoDate(range.newest);
+      return "fuel-history-" + (a === b ? a : a + "-to-" + b) + ".csv";
+    }
+
+    // --- CSV out ---
+    const CSV_HEADER = [
+      "Date", "Time", "From", "To", "Distance (km)", "Consumption (L/100km)",
+      "Price (c/L)", "Fuel used (L)", "Cost (AUD)", "Timestamp"
+    ];
+
+    function csvCell(value) {
+      const text = (value === undefined || value === null) ? "" : String(value);
+      return /[",\r\n]/.test(text) ? QUOTE + text.replace(/"/g, QUOTE + QUOTE) + QUOTE : text;
+    }
+
+    function buildCsv() {
+      const rows = [CSV_HEADER];
+
+      loadHistory().forEach(function (t) {
+        const d = new Date(t.ts);
+        const litres = (t.consumption / 100) * t.distance;
+
+        // Trips saved before From/To existed carried a single location,
+        // which reads as the destination.
+        const to = t.to || (t.from ? "" : t.location) || "";
+
+        rows.push([
+          isoDate(d),
+          isoTime(d),
+          t.from || "",
+          to,
+          trim(t.distance),
+          trim(t.consumption),
+          trim(t.price),
+          litres.toFixed(2),
+          Number(t.tripCost).toFixed(2),
+          t.ts
+        ]);
+      });
+
+      // A leading BOM keeps Excel from mangling non-ASCII place names.
+      return BOM + rows.map(function (row) {
+        return row.map(csvCell).join(",");
+      }).join("\r\n") + "\r\n";
+    }
+
+    // --- CSV in ---
+    // Small RFC-4180 reader: handles quoted cells containing commas, quotes
+    // and newlines, and both CRLF and LF line endings.
+    function parseCsv(text) {
+      const rows = [];
+      let row = [];
+      let cell = "";
+      let quoted = false;
+
+      for (let i = 0; i < text.length; i++) {
+        const c = text.charAt(i);
+
+        if (quoted) {
+          if (c !== QUOTE) { cell += c; }
+          else if (text.charAt(i + 1) === QUOTE) { cell += QUOTE; i++; }
+          else { quoted = false; }
+          continue;
+        }
+
+        if (c === QUOTE) { quoted = true; }
+        else if (c === ",") { row.push(cell); cell = ""; }
+        else if (c === "\n") { row.push(cell); rows.push(row); row = []; cell = ""; }
+        else if (c !== "\r") { cell += c; }
       }
 
-      const name = backupName();
-      const json = buildBackup();
-      const today = humanDate(new Date());
+      if (cell !== "" || row.length) { row.push(cell); rows.push(row); }
 
-      // On iOS the share sheet is the reliable route into Mail, Files or Drive;
-      // everywhere else a plain download is simpler.
-      let file = null;
-      try {
-        file = new File([json], name, { type: "application/json" });
-      } catch (e) {
-        file = null;
-      }
+      // Drop blank trailing lines.
+      return rows.filter(function (r) {
+        return r.length > 1 || (r[0] || "").trim() !== "";
+      });
+    }
 
-      // Mail targets read title as the subject and text as the body, so fill
-      // both in. Not every target will take them beside a file, so fall back
-      // to sharing the file alone rather than losing the share sheet.
-      let share = null;
-      if (file && navigator.canShare) {
-        const withText = {
-          files: [file],
-          title: "Fuel cost backup " + today,
-          text: count + " trips, exported " + today
-            + ". Open the Fuel Cost app and tap Import to restore this file."
-        };
-        const fileOnly = { files: [file] };
+    // Columns are located by header name, so reordering them in a spreadsheet
+    // is fine. Returns null when the file is not one of ours.
+    function csvToTrips(text) {
+      const rows = parseCsv(text);
+      if (rows.length < 2) return null;
 
-        if (navigator.canShare(withText)) share = withText;
-        else if (navigator.canShare(fileOnly)) share = fileOnly;
-      }
+      const head = rows[0].map(function (h) { return h.trim().toLowerCase(); });
+      function col(name) { return head.indexOf(name); }
 
-      if (share) {
-        navigator.share(share).then(function () {
-          say("Exported " + count + " trips.");
-        }).catch(function (err) {
-          if (err && err.name === "AbortError") {
-            say("Export cancelled.");
-          } else {
-            downloadBackup(name, json);
-            say("Exported " + count + " trips to " + name);
-          }
+      const iDist = col("distance (km)");
+      const iCons = col("consumption (l/100km)");
+      const iPrice = col("price (c/l)");
+      if (iDist < 0 || iCons < 0 || iPrice < 0) return null;
+
+      const iTs = col("timestamp");
+      const iDate = col("date");
+      const iTime = col("time");
+      const iFrom = col("from");
+      const iTo = col("to");
+      const iCost = col("cost (aud)");
+
+      const trips = [];
+      let skipped = 0;
+
+      rows.slice(1).forEach(function (r) {
+        function at(i) { return (i >= 0 && i < r.length) ? r[i].trim() : ""; }
+
+        const price = Number(at(iPrice));
+        const consumption = Number(at(iCons));
+        const distance = Number(at(iDist));
+
+        if (at(iPrice) === "" || at(iCons) === "" || at(iDist) === ""
+            || !isFinite(price) || !isFinite(consumption) || !isFinite(distance)) {
+          skipped++;
+          return;
+        }
+
+        // Prefer the exact timestamp; fall back to the readable date so a row
+        // typed by hand in a spreadsheet still imports.
+        let ts = Number(at(iTs));
+        if (!isFinite(ts) || !ts) {
+          ts = Date.parse(at(iDate) + "T" + (at(iTime) || "00:00:00"));
+        }
+        if (!isFinite(ts) || !ts) { skipped++; return; }
+
+        const cost = Number(at(iCost));
+
+        trips.push({
+          ts: ts,
+          price: price,
+          consumption: consumption,
+          distance: distance,
+          tripCost: (at(iCost) !== "" && isFinite(cost))
+            ? cost
+            : (consumption / 100) * (price / 100) * distance,
+          from: at(iFrom),
+          to: at(iTo)
         });
-        return;
-      }
+      });
 
-      downloadBackup(name, json);
-      say("Exported " + count + " trips to " + name);
-    });
+      trips.skipped = skipped;
+      return trips;
+    }
 
-    importBtn.addEventListener("click", function () {
-      importFile.click();
-    });
-
-    // Accepts a full backup object or a bare array, and drops anything
-    // that is not a usable trip rather than trusting the file.
+    // --- Legacy JSON backups, so files exported before CSV still import ---
     function readTrips(parsed) {
       const raw = Array.isArray(parsed) ? parsed : (parsed && parsed.trips);
       if (!Array.isArray(raw)) return null;
 
       return raw
         .filter(function (t) {
-          return t
-            && isFinite(t.ts)
-            && isFinite(t.price)
-            && isFinite(t.consumption)
-            && isFinite(t.distance);
+          return t && isFinite(t.ts) && isFinite(t.price)
+            && isFinite(t.consumption) && isFinite(t.distance);
         })
         .map(function (t) {
           const price = Number(t.price);
@@ -869,6 +950,77 @@
         });
     }
 
+    function downloadBackup(name, csv) {
+      const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    }
+
+    exportBtn.addEventListener("click", function () {
+      const items = loadHistory();
+      if (!items.length) {
+        say("Nothing to export yet \u2014 save a trip first.");
+        return;
+      }
+
+      const count = items.length;
+      const name = backupName(items);
+      const csv = buildCsv();
+      const range = spanLabel(items);
+
+      // On iOS the share sheet is the reliable route into Mail, Files or Drive;
+      // everywhere else a plain download is simpler.
+      let file = null;
+      try {
+        file = new File([csv], name, { type: "text/csv" });
+      } catch (e) {
+        file = null;
+      }
+
+      // Mail targets read title as the subject and text as the body, so fill
+      // both in. Not every target will take them beside a file, so fall back
+      // to sharing the file alone rather than losing the share sheet.
+      let share = null;
+      if (file && navigator.canShare) {
+        const withText = {
+          files: [file],
+          title: "Fuel History - " + range,
+          text: count + " trips, " + range
+            + ". Open the Fuel Cost app and tap Import to restore this file."
+        };
+        const fileOnly = { files: [file] };
+
+        if (navigator.canShare(withText)) share = withText;
+        else if (navigator.canShare(fileOnly)) share = fileOnly;
+      }
+
+      if (share) {
+        navigator.share(share).then(function () {
+          say("Exported " + count + " trips.");
+        }).catch(function (err) {
+          if (err && err.name === "AbortError") {
+            say("Export cancelled.");
+          } else {
+            downloadBackup(name, csv);
+            say("Exported " + count + " trips to " + name);
+          }
+        });
+        return;
+      }
+
+      downloadBackup(name, csv);
+      say("Exported " + count + " trips to " + name);
+    });
+
+    importBtn.addEventListener("click", function () {
+      importFile.click();
+    });
+
     importFile.addEventListener("change", function () {
       const file = importFile.files && importFile.files[0];
       if (!file) return;
@@ -881,16 +1033,29 @@
       };
 
       reader.onload = function () {
-        let parsed;
-        try {
-          parsed = JSON.parse(reader.result);
-        } catch (e) {
-          say("That file is not valid JSON.");
-          importFile.value = "";
-          return;
+        // Strip any BOM before deciding what kind of file this is.
+        const raw = String(reader.result).replace(BOM_RE, "").trim();
+        const first = raw.charAt(0);
+
+        let incoming = null;
+        let places = null;
+
+        if (first === "{" || first === "[") {
+          // A backup exported before the switch to CSV.
+          let parsed;
+          try {
+            parsed = JSON.parse(raw);
+          } catch (e) {
+            say("That file is not valid JSON.");
+            importFile.value = "";
+            return;
+          }
+          incoming = readTrips(parsed);
+          if (parsed && Array.isArray(parsed.places)) places = parsed.places;
+        } else {
+          incoming = csvToTrips(raw);
         }
 
-        const incoming = readTrips(parsed);
         if (!incoming) {
           say("No trips found in that file.");
           importFile.value = "";
@@ -908,29 +1073,35 @@
         persistHistory(merged);
         renderHistory();
 
-        // Restore the dropdown list: places named in the file, plus any
-        // carried on the trips themselves.
-        if (parsed && Array.isArray(parsed.places)) {
-          parsed.places.slice().reverse().forEach(rememberPlace);
-        }
+        // Rebuild the dropdown from whatever the file named.
+        if (places) places.slice().reverse().forEach(rememberPlace);
         added.slice().reverse().forEach(function (t) {
           rememberPlace(t.from);
           rememberPlace(t.to);
           rememberPlace(t.location);
         });
 
-        // Carry the backed-up price over only into an empty box.
-        if (parsed && parsed.lastPrice && priceEl.value === "") {
-          priceEl.value = parsed.lastPrice;
-          localStorage.setItem(LAST_PRICE_KEY, parsed.lastPrice);
+        // Carry the newest price over only into an empty box.
+        if (merged.length && priceEl.value === "") {
+          priceEl.value = trim(merged[0].price);
+          localStorage.setItem(LAST_PRICE_KEY, priceEl.value);
+        }
+
+        const skipped = incoming.skipped || 0;
+        const notes = [];
+        if (incoming.length - added.length) {
+          notes.push((incoming.length - added.length) + " already here");
+        }
+        if (skipped) {
+          notes.push(skipped + " row" + (skipped > 1 ? "s" : "") + " skipped");
         }
 
         if (added.length) {
-          const dupes = incoming.length - added.length;
           say("Imported " + added.length + " new trips"
-            + (dupes ? " (" + dupes + " already here)." : "."));
+            + (notes.length ? " (" + notes.join(", ") + ")." : "."));
         } else {
-          say("Nothing new — all " + incoming.length + " trips were already saved.");
+          say("Nothing new \u2014 all " + incoming.length + " trips were already saved"
+            + (skipped ? ", " + skipped + " skipped." : "."));
         }
 
         importFile.value = "";

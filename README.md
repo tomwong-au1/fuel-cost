@@ -51,16 +51,36 @@ All saved trips live on the phone in `localStorage`, which is not permanent — 
 browser data or moving to a new phone loses them. The **Backup** card at the bottom of the
 app guards against that:
 
-- **Export** writes every saved trip to `fuel-cost-backup-YYYY-MM-DD.json`. On iPhone this
-  opens the share sheet, so the file can go to Files, Drive, or straight into a mail as an
-  attachment; elsewhere it just downloads. Picking a mail app gets a subject and body
-  already filled in, leaving only the recipient to type.
+- **Export** writes every saved trip to a CSV named for the span it covers, e.g.
+  `fuel-history-2026-01-01-to-2026-06-30.csv`. On iPhone this opens the share sheet, so the
+  file can go to Files, Drive, or straight into a mail as an attachment; elsewhere it just
+  downloads. Picking a mail app gets the subject **Fuel History - 1 Jan 2026 to 30 Jun 2026**
+  and a matching body already filled in, leaving only the recipient to type.
 - **Import** reads one of those files back. Trips are merged on their timestamp, so
   importing the same backup twice adds nothing and never creates duplicates — importing
   from two different phones gives you the union of both.
 
 Nothing leaves the device unless you choose to share the file, and the app stays fully
 offline.
+
+### The CSV
+
+| Column | Notes |
+|--------|-------|
+| `Date`, `Time` | `YYYY-MM-DD` and 24-hour, so spreadsheets read them without guessing |
+| `From`, `To` | free text; quoted when it contains a comma or a quote |
+| `Distance (km)`, `Consumption (L/100km)`, `Price (c/L)` | as entered |
+| `Fuel used (L)`, `Cost (AUD)` | derived, to 2 decimals |
+| `Timestamp` | milliseconds; what de-duplication matches on |
+
+Open it in Excel or Google Sheets to chart it — a leading BOM keeps non-ASCII place
+names intact. Columns are located by header name on import, so reordering them is fine, and
+a row typed by hand imports as long as it keeps either `Timestamp` or `Date`. Rows missing
+distance, consumption or price are skipped, and the count is reported.
+
+Backups exported before the switch to CSV were JSON. Those still import: the file is
+recognised by its contents, not its extension. Trips saved before **From**/**To** existed
+carried a single `Location`, which exports in the `To` column.
 
 ## Files
 

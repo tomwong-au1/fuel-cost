@@ -1,6 +1,6 @@
 // Simple offline-first service worker.
 // Bump CACHE_VERSION whenever you change any cached file so users get the update.
-const CACHE_VERSION = "fuel-cost-v9";
+const CACHE_VERSION = "fuel-cost-v10";
 
 const ASSETS = [
   "./",
